@@ -227,6 +227,10 @@
   .qr-result .rl{font-size:12px;color:var(--red);font-weight:700;text-transform:uppercase;letter-spacing:.5px}
   .qr-result .rv{font-size:14px;font-weight:600;margin-top:6px;word-break:break-word;line-height:1.5}
   .qr-result a{color:var(--red);text-decoration:underline}
+  .qr-result .qr-row{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;padding:9px 0;border-bottom:1px dashed rgba(227,6,19,.18);font-size:13.5px}
+  .qr-result .qr-row:last-child{border-bottom:none}
+  .qr-result .qr-row span{color:#9a4a4f;flex:none}
+  .qr-result .qr-row b{font-weight:700;text-align:right;word-break:break-word;color:var(--ink)}
 
   /* ===== Success screen ===== */
   .success{position:absolute;inset:0;background:#fff;z-index:70;display:none;flex-direction:column;animation:fade .25s}
@@ -305,7 +309,7 @@
     <div class="lg-top">
       <div class="lg-logo">T</div>
       <div class="ava">H</div>
-      <h2>Chào mừng trở lại, Huy</h2>
+      <h2>Chào mừng trở lại, PHUNG GIA HUY</h2>
       <p>Nhập mã PIN để đăng nhập</p>
       <div class="pin-dots" id="pin-dots"><i></i><i></i><i></i><i></i><i></i><i></i></div>
       <div class="lg-err" id="lg-err"></div>
@@ -332,7 +336,7 @@
       <div class="hd">
         <div class="hd-row">
           <div class="ava">H</div>
-          <div class="hd-name"><small>Xin chào,</small><b>Huy Nguyễn</b></div>
+          <div class="hd-name"><small>Xin chào,</small><b>PHUNG GIA HJY</b></div>
           <div class="hd-ic">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4-4"/></svg>
             <svg class="bell" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0"/></svg>
@@ -509,7 +513,7 @@
 </div>
 
 <script>
-  let balance=38420000, hidden=false, lastQRData=null;
+  let balance=38420000, hidden=false, lastQRData=null, lastVietQR=null;
   const fmt=n=>n.toLocaleString('vi-VN');
   const txData=[
     {icon:'☕',name:'Highlands Coffee',cat:'Hôm nay · 08:24',val:-65000},
@@ -671,22 +675,82 @@
       if(code&&code.data){stopCam();handleQR(code.data);}else hint.textContent='Không tìm thấy mã QR trong ảnh.';};
     img.src=URL.createObjectURL(f); e.target.value='';
   });
+  // ---- VietQR / EMVCo decoder ----
+  const BANK_BINS={
+    "970407":"Techcombank","970436":"Vietcombank","970418":"BIDV","970415":"VietinBank",
+    "970405":"Agribank","970422":"MB Bank","970432":"VPBank","970423":"TPBank",
+    "970403":"Sacombank","970416":"ACB","970437":"HDBank","970448":"OCB","970429":"SCB",
+    "970441":"VIB","970443":"SHB","970431":"Eximbank","970426":"MSB","970409":"Bac A Bank",
+    "970412":"PVcomBank","970419":"NCB","970424":"Shinhan Bank","970425":"ABBANK",
+    "970427":"VietABank","970428":"Nam A Bank","970430":"PG Bank","970433":"VietBank",
+    "970438":"BaoVietBank","970440":"SeABank","970446":"Co-opBank","970449":"LPBank",
+    "970452":"KienlongBank","970454":"BVBank","970442":"Hong Leong","970421":"VRB",
+    "970406":"DongA Bank","546034":"CIMB","963388":"Timo"
+  };
+  function emvParse(s){
+    const o={}; let i=0;
+    while(i+4<=s.length){
+      const tag=s.substr(i,2), len=parseInt(s.substr(i+2,2),10);
+      if(isNaN(len)||i+4+len>s.length) break;
+      o[tag]=s.substr(i+4,len); i+=4+len;
+    }
+    return o;
+  }
+  function parseVietQR(data){
+    if(!/^000201/.test(data)) return null;            // EMVCo payload format indicator
+    const top=emvParse(data);
+    const mai=top['38']?emvParse(top['38']):null;     // VietQR merchant account info
+    if(!mai||!(mai['00']||'').includes('A000000727')) return null; // NAPAS GUID
+    let bin='',acc='';
+    if(mai['01']){const sub=emvParse(mai['01']); bin=sub['00']||''; acc=sub['01']||'';}
+    let note='';
+    if(top['62']){const add=emvParse(top['62']); note=add['08']||add['01']||'';}
+    return {
+      bank: BANK_BINS[bin] || (bin?('Ngân hàng (BIN '+bin+')'):'Không rõ'),
+      bin, acc,
+      name:(top['59']||'').trim(),
+      amount: top['54']||'',
+      note: note.trim()
+    };
+  }
+
   function handleQR(data){
-    stopCam();scanning=false;lastQRData=data;
+    stopCam();scanning=false;lastQRData=data;lastVietQR=null;
     const res=document.getElementById('qr-result'),rv=document.getElementById('qr-rv'),pay=document.getElementById('qr-pay');
     hint.textContent='Đã đọc xong mã QR ✅';
-    let display=data,isPay=false; const lower=data.toLowerCase();
-    if(/^https?:\/\//.test(data)) display=`Liên kết: <a href="${data}" target="_blank" rel="noopener">${data}</a>`;
-    else if(lower.includes('bank')||/\d{6,}/.test(data)){isPay=true;display=`Mã thanh toán: <b>${data}</b>`;}
-    rv.innerHTML=display; pay.style.display=isPay?'block':'none'; res.classList.add('show');
+    const v=parseVietQR(data);
+    if(v && v.acc){
+      lastVietQR=v;
+      let rows=`<div class="qr-row"><span>Ngân hàng</span><b>${v.bank}</b></div>`
+              +`<div class="qr-row"><span>Số tài khoản</span><b>${v.acc}</b></div>`;
+      rows+= v.name
+        ? `<div class="qr-row"><span>Tên người nhận</span><b>${v.name}</b></div>`
+        : `<div class="qr-row"><span>Tên người nhận</span><b style="color:var(--muted);font-weight:500">(mã không kèm tên)</b></div>`;
+      if(v.amount) rows+=`<div class="qr-row"><span>Số tiền</span><b>${fmt(parseInt(v.amount))}₫</b></div>`;
+      if(v.note)   rows+=`<div class="qr-row"><span>Nội dung</span><b>${v.note}</b></div>`;
+      rv.innerHTML=rows; pay.style.display='block';
+    } else if(/^https?:\/\//.test(data)){
+      rv.innerHTML=`Liên kết: <a href="${data}" target="_blank" rel="noopener">${data}</a>`;
+      pay.style.display='none';
+    } else {
+      rv.innerHTML=`Nội dung mã: <b>${data}</b>`;
+      pay.style.display='none';
+    }
+    res.classList.add('show');
     toast('Đọc mã QR thành công');
   }
   function qrToTransfer(){
     closeSheet(); openSheet('transfer');
-    if(lastQRData){const m=lastQRData.match(/\d{6,}/);
+    if(lastVietQR){
+      document.getElementById('m-acc').value=lastVietQR.acc;
+      document.getElementById('m-name').value=lastVietQR.name||'';
+      document.getElementById('m-note').value=lastVietQR.note||'Thanh toan QR';
+      if(lastVietQR.amount) document.getElementById('m-amt').value=fmt(parseInt(lastVietQR.amount));
+    } else if(lastQRData){
+      const m=lastQRData.match(/\d{6,}/);
       document.getElementById('m-acc').value=m?m[0]:'';
-      document.getElementById('m-name').value='Người nhận QR';
-      document.getElementById('m-note').value='Thanh toan QR';}
+      document.getElementById('m-note').value='Thanh toan QR';
+    }
   }
   function resetQR(){document.getElementById('qr-result').classList.remove('show');document.getElementById('qr-pay').style.display='none';}
 
