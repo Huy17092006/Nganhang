@@ -1,0 +1,630 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hand Gesture Effects</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #000; overflow: hidden; width: 100vw; height: 100vh; font-family: sans-serif; }
+
+  #container { position: relative; width: 100vw; height: 100vh; }
+
+  #video {
+    position: absolute; top: 0; left: 0;
+    width: 100%; height: 100%;
+    object-fit: cover;
+    transform: scaleX(-1);
+    opacity: 0.35;
+    pointer-events: none;
+  }
+
+  #canvas {
+    position: absolute; top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+  }
+
+  #overlay {
+    position: absolute; top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+  }
+
+  #upload-btn {
+    position: absolute;
+    bottom: 20px; right: 20px;
+    background: rgba(255,255,255,0.1);
+    border: 1px solid rgba(255,255,255,0.3);
+    color: #fff;
+    padding: 10px 18px;
+    border-radius: 30px;
+    cursor: pointer;
+    font-size: 13px;
+    backdrop-filter: blur(10px);
+    transition: background 0.2s;
+    z-index: 100;
+  }
+  #upload-btn:hover { background: rgba(255,255,255,0.2); }
+
+  #file-input { display: none; }
+
+  #status {
+    position: absolute; bottom: 20px; left: 20px;
+    color: rgba(255,255,255,0.4);
+    font-size: 11px;
+    z-index: 100;
+  }
+
+  .floating-img {
+    position: absolute;
+    border-radius: 12px;
+    box-shadow: 0 0 20px rgba(255,255,255,0.15);
+    pointer-events: none;
+    will-change: transform;
+    transition: filter 0.3s;
+  }
+</style>
+</head>
+<body>
+<div id="container">
+  <video id="video" autoplay playsinline muted></video>
+  <canvas id="canvas"></canvas>
+  <div id="overlay"></div>
+  <button id="upload-btn">+ Thêm ảnh</button>
+  <input type="file" id="file-input" accept="image/*" multiple>
+  <div id="status">Đang khởi động camera...</div>
+</div>
+
+<!-- MediaPipe Hands via CDN -->
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+<script>
+// ── CONFIG ──────────────────────────────────────────────────────────────────
+const DEFAULT_IMAGES = [
+  'images/photo1.webp','images/photo2.webp','images/photo3.webp',
+  'images/photo4.webp','images/photo5.webp','images/photo6.webp',
+  'images/photo7.webp','images/photo8.jpg'
+];
+
+const W = () => window.innerWidth;
+const H = () => window.innerHeight;
+
+// ── STATE ────────────────────────────────────────────────────────────────────
+let images = [];           // {img, src}
+let floaters = [];         // floating image objects
+let gesture = 'NONE';      // current gesture
+let prevGesture = 'NONE';
+let trailPoints = [];      // for finger trail
+let ballParticles = [];    // for fist-ball
+let ballActive = false;
+let ballX = W()/2, ballY = H()/2;
+let trailImages = [];      // images spawned along trail
+let gestureTimeout = null;
+
+// Gesture 3 – TWO_FINGERS: orbit ring
+let orbitActive = false;
+let orbitAngle = 0;
+
+// Gesture 4 – THUMB_UP: gravity pull to center
+let pullActive = false;
+
+// Gesture 5 – PINCH: image zoom/shrink
+let pinchActive = false;
+let pinchScale = 1;
+let prevPinchDist = null;
+
+let handVisible = false;
+let fingerPos = {x: 0.5, y: 0.5}; // normalized
+
+// ── CANVAS ───────────────────────────────────────────────────────────────────
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+function resizeCanvas() {
+  canvas.width = W(); canvas.height = H();
+}
+resizeCanvas();
+window.addEventListener('resize', resizeCanvas);
+
+// ── LOAD DEFAULT IMAGES ───────────────────────────────────────────────────────
+function loadImage(src) {
+  return new Promise(res => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => res({img, src});
+    img.onerror = () => res(null);
+    img.src = src;
+  });
+}
+
+async function loadDefaults() {
+  const loaded = await Promise.all(DEFAULT_IMAGES.map(loadImage));
+  images = loaded.filter(Boolean);
+  spawnFloaters();
+}
+
+// ── FLOATERS ─────────────────────────────────────────────────────────────────
+function spawnFloaters() {
+  floaters = [];
+  if (!images.length) return;
+  const count = Math.min(images.length, 8);
+  for (let i = 0; i < count; i++) {
+    floaters.push(createFloater(i));
+  }
+}
+
+function createFloater(imgIdx) {
+  const src = images[imgIdx % images.length];
+  const sz = 80 + Math.random() * 100;
+  return {
+    img: src.img,
+    x: Math.random() * W(),
+    y: Math.random() * H(),
+    vx: (Math.random() - 0.5) * 0.4,
+    vy: (Math.random() - 0.5) * 0.4,
+    w: sz, h: sz * 0.75,
+    rot: Math.random() * Math.PI * 2,
+    rotV: (Math.random() - 0.5) * 0.003,
+    alpha: 0.7 + Math.random() * 0.3,
+    scale: 1,
+    targetScale: 1,
+    phase: Math.random() * Math.PI * 2,
+  };
+}
+
+function updateFloaters(dt) {
+  const t = Date.now() / 1000;
+  floaters.forEach((f, i) => {
+    // gentle float
+    f.x += f.vx + Math.sin(t * 0.3 + f.phase) * 0.15;
+    f.y += f.vy + Math.cos(t * 0.25 + f.phase) * 0.12;
+    f.rot += f.rotV;
+
+    // bounce edges
+    if (f.x < -f.w) f.x = W() + f.w;
+    if (f.x > W() + f.w) f.x = -f.w;
+    if (f.y < -f.h) f.y = H() + f.h;
+    if (f.y > H() + f.h) f.y = -f.h;
+
+    // smooth scale
+    f.scale += (f.targetScale - f.scale) * 0.08;
+  });
+}
+
+// ── TRAIL SYSTEM ──────────────────────────────────────────────────────────────
+let trailImgObjects = []; // {x,y,img,alpha,scale,rot,life}
+
+function addTrailImage(x, y) {
+  if (!images.length) return;
+  const src = images[Math.floor(Math.random() * images.length)];
+  const sz = 60 + Math.random() * 80;
+  trailImgObjects.push({
+    x, y, img: src.img,
+    w: sz, h: sz * 0.75,
+    alpha: 0, targetAlpha: 0.85,
+    scale: 0.3, targetScale: 1,
+    rot: (Math.random() - 0.5) * 0.5,
+    life: 1.0,
+    decay: 0.004 + Math.random() * 0.003
+  });
+  if (trailImgObjects.length > 20) trailImgObjects.shift();
+}
+
+function updateTrailImgs() {
+  trailImgObjects = trailImgObjects.filter(t => t.alpha > 0.01 || t.targetAlpha > 0);
+  trailImgObjects.forEach(t => {
+    t.alpha += (t.targetAlpha - t.alpha) * 0.15;
+    t.scale += (t.targetScale - t.scale) * 0.12;
+    if (t.alpha >= t.targetAlpha * 0.9 && t.targetAlpha > 0) {
+      t.life -= t.decay;
+      if (t.life < 0.3) { t.targetAlpha = 0; }
+    }
+  });
+}
+
+// ── BALL SYSTEM ───────────────────────────────────────────────────────────────
+let ballParticleObjs = []; // for explosion
+let ballImgs = [];         // images collapsed into ball
+let ballRadius = 0;
+let ballTargetRadius = 0;
+
+function activateBall(x, y) {
+  ballX = x; ballY = y;
+  ballTargetRadius = 55;
+  ballActive = true;
+  ballImgs = images.map((src, i) => ({
+    img: src.img,
+    angle: (i / images.length) * Math.PI * 2,
+    r: 0, targetR: 55,
+    scale: 0.15
+  }));
+}
+
+function releaseBall(x, y) {
+  if (!ballActive) return;
+  ballActive = false;
+  // explode images outward
+  ballImgs.forEach((b, i) => {
+    const angle = b.angle + ballRadius * 0.1;
+    const speed = 4 + Math.random() * 6;
+    const sz = 80 + Math.random() * 100;
+    trailImgObjects.push({
+      x, y,
+      img: b.img,
+      w: sz, h: sz * 0.75,
+      alpha: 0.9,
+      targetAlpha: 0.0,
+      scale: 0.5, targetScale: 1.2,
+      rot: (Math.random() - 0.5) * 1,
+      life: 1.0, decay: 0.006,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed
+    });
+  });
+  ballImgs = [];
+  ballTargetRadius = 0;
+}
+
+// ── ORBIT SYSTEM (2 fingers) ──────────────────────────────────────────────────
+let orbitObjs = [];
+function buildOrbit() {
+  orbitObjs = images.map((src, i) => ({
+    img: src.img,
+    baseAngle: (i / images.length) * Math.PI * 2,
+    radius: 130 + (i % 3) * 40,
+    sz: 60 + Math.random() * 40,
+    alpha: 0
+  }));
+}
+
+// ── PULL SYSTEM (thumb up) ─────────────────────────────────────────────────────
+function activatePull() {
+  pullActive = true;
+  floaters.forEach(f => { f.pulling = true; });
+}
+function releasePull() {
+  pullActive = false;
+  floaters.forEach(f => { f.pulling = false; });
+}
+
+// ── PINCH SYSTEM ─────────────────────────────────────────────────────────────
+function updatePinch(dist) {
+  if (prevPinchDist !== null) {
+    const delta = dist - prevPinchDist;
+    pinchScale = Math.max(0.3, Math.min(2.5, pinchScale + delta * 0.015));
+    floaters.forEach(f => f.targetScale = pinchScale);
+  }
+  prevPinchDist = dist;
+}
+
+// ── GESTURE DETECTION ─────────────────────────────────────────────────────────
+function detectGesture(lm) {
+  // lm: 21 landmarks [{x,y,z}], normalized 0-1
+  const tip = [4,8,12,16,20];   // thumb, index, middle, ring, pinky tips
+  const pip = [3,6,10,14,18];   // PIP joints
+  const mcp = [2,5,9,13,17];
+
+  // finger extended: tip.y < pip.y (flipped because y grows down)
+  // For thumb: tip.x vs mcp.x (horizontal check, mirrored)
+  const extended = [
+    lm[4].x < lm[3].x,                    // thumb (mirrored view)
+    lm[8].y < lm[6].y,                    // index
+    lm[12].y < lm[10].y,                  // middle
+    lm[16].y < lm[14].y,                  // ring
+    lm[20].y < lm[18].y,                  // pinky
+  ];
+
+  const extCount = extended.filter(Boolean).length;
+
+  // Distance thumb-index for pinch
+  const pinchDist = Math.hypot(lm[4].x - lm[8].x, lm[4].y - lm[8].y);
+
+  // FIST: all fingers curled
+  if (extCount === 0) return {name:'FIST', x: lm[9].x, y: lm[9].y};
+
+  // OPEN (5 fingers): all extended
+  if (extCount >= 4 && extended[1] && extended[2] && extended[3] && extended[4])
+    return {name:'OPEN', x: lm[9].x, y: lm[9].y};
+
+  // ONE FINGER: only index extended
+  if (extended[1] && !extended[2] && !extended[3] && !extended[4])
+    return {name:'ONE', x: lm[8].x, y: lm[8].y};
+
+  // TWO FINGERS: index + middle (peace)
+  if (extended[1] && extended[2] && !extended[3] && !extended[4])
+    return {name:'TWO', x: lm[9].x, y: lm[9].y};
+
+  // THUMB UP: only thumb extended, rest curled
+  if (extended[0] && !extended[1] && !extended[2] && !extended[3] && !extended[4])
+    return {name:'THUMB_UP', x: lm[4].x, y: lm[4].y};
+
+  // PINCH: thumb + index close
+  if (pinchDist < 0.07)
+    return {name:'PINCH', dist: pinchDist, x: (lm[4].x+lm[8].x)/2, y: (lm[4].y+lm[8].y)/2};
+
+  return {name:'NONE', x: lm[9].x, y: lm[9].y};
+}
+
+// ── MAIN DRAW LOOP ────────────────────────────────────────────────────────────
+let lastTrailSpawn = 0;
+
+function draw() {
+  requestAnimationFrame(draw);
+  ctx.clearRect(0, 0, W(), H());
+
+  const now = Date.now();
+  updateFloaters(16);
+  updateTrailImgs();
+
+  // ── Update trail image positions with velocity
+  trailImgObjects.forEach(t => {
+    if (t.vx) { t.x += t.vx; t.vy += 0.08; t.y += t.vy; } // gravity
+  });
+
+  // ── Draw floaters (always visible unless another gesture overrides)
+  const showFloaters = gesture === 'NONE' || gesture === 'THUMB_UP' || gesture === 'PINCH';
+  if (showFloaters) {
+    floaters.forEach(f => {
+      ctx.save();
+      ctx.globalAlpha = f.alpha * f.scale;
+      ctx.translate(f.x, f.y);
+      ctx.rotate(f.rot);
+
+      if (pullActive) {
+        // drift toward center
+        const cx = W()/2, cy = H()/2;
+        f.vx += (cx - f.x) * 0.001;
+        f.vy += (cy - f.y) * 0.001;
+        f.vx *= 0.97; f.vy *= 0.97;
+      }
+
+      const sw = f.w * f.scale, sh = f.h * f.scale;
+      ctx.drawImage(f.img, -sw/2, -sh/2, sw, sh);
+      ctx.restore();
+    });
+  }
+
+  // ── Draw trail images
+  trailImgObjects.forEach(t => {
+    ctx.save();
+    ctx.globalAlpha = t.alpha;
+    ctx.translate(t.x, t.y);
+    ctx.rotate(t.rot);
+    ctx.scale(t.scale, t.scale);
+    ctx.drawImage(t.img, -t.w/2, -t.h/2, t.w, t.h);
+    ctx.restore();
+  });
+
+  // ── ONE FINGER trail glow
+  if (gesture === 'ONE' && trailPoints.length > 1) {
+    ctx.save();
+    ctx.strokeStyle = 'rgba(180,220,255,0.7)';
+    ctx.lineWidth = 3;
+    ctx.lineCap = 'round';
+    ctx.shadowBlur = 18;
+    ctx.shadowColor = '#88ccff';
+    ctx.beginPath();
+    trailPoints.forEach((p, i) => {
+      if (i === 0) ctx.moveTo(p.x, p.y);
+      else ctx.lineTo(p.x, p.y);
+    });
+    ctx.stroke();
+    // fading dots
+    trailPoints.forEach((p, i) => {
+      const a = i / trailPoints.length;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 3 * a, 0, Math.PI*2);
+      ctx.fillStyle = `rgba(180,230,255,${a * 0.8})`;
+      ctx.fill();
+    });
+    ctx.restore();
+  }
+
+  // ── BALL (FIST gesture)
+  if (ballActive || ballTargetRadius > 0) {
+    ballTargetRadius *= 0.9; // shrink on release
+    if (!ballActive && ballTargetRadius < 1) ballTargetRadius = 0;
+
+    const cr = ballActive ? 55 : ballTargetRadius;
+    // draw glowing orb
+    ctx.save();
+    const grd = ctx.createRadialGradient(ballX, ballY, 0, ballX, ballY, cr * 1.5);
+    grd.addColorStop(0, 'rgba(160,200,255,0.9)');
+    grd.addColorStop(0.5, 'rgba(80,120,220,0.6)');
+    grd.addColorStop(1, 'rgba(40,60,180,0)');
+    ctx.fillStyle = grd;
+    ctx.beginPath();
+    ctx.arc(ballX, ballY, cr * 1.5, 0, Math.PI*2);
+    ctx.fill();
+
+    // images orbiting inside ball
+    ballImgs.forEach((b, i) => {
+      b.r += (55 - b.r) * 0.1;
+      b.scale += (0.4 - b.scale) * 0.1;
+      const ang = b.baseAngle + Date.now() * 0.001;
+      const ix = ballX + Math.cos(ang) * b.r * 0.6;
+      const iy = ballY + Math.sin(ang) * b.r * 0.6;
+      const sz = 36 * b.scale;
+      ctx.save();
+      ctx.globalAlpha = 0.85;
+      ctx.beginPath();
+      ctx.arc(ix, iy, sz/2, 0, Math.PI*2);
+      ctx.clip();
+      ctx.drawImage(b.img, ix-sz/2, iy-sz/2, sz, sz);
+      ctx.restore();
+    });
+    ctx.restore();
+  }
+
+  // ── ORBIT (TWO fingers)
+  if (gesture === 'TWO' || orbitActive) {
+    const cx = fingerPos.x * W(), cy = fingerPos.y * H();
+    orbitAngle += 0.008;
+    orbitObjs.forEach((o, i) => {
+      o.alpha = Math.min(1, o.alpha + 0.04);
+      const ang = o.baseAngle + orbitAngle;
+      const ox = cx + Math.cos(ang) * o.radius;
+      const oy = cy + Math.sin(ang) * o.radius * 0.45; // ellipse
+      ctx.save();
+      ctx.globalAlpha = o.alpha * 0.88;
+      ctx.translate(ox, oy);
+      ctx.rotate(ang * 0.3);
+      ctx.drawImage(o.img, -o.sz/2, -o.sz*0.375, o.sz, o.sz*0.75);
+      ctx.restore();
+    });
+  } else {
+    orbitObjs.forEach(o => o.alpha = Math.max(0, o.alpha - 0.03));
+    if (orbitObjs.some(o => o.alpha > 0)) {
+      const cx = fingerPos.x * W(), cy = fingerPos.y * H();
+      orbitAngle += 0.004;
+      orbitObjs.forEach((o) => {
+        const ang = o.baseAngle + orbitAngle;
+        const ox = cx + Math.cos(ang) * o.radius;
+        const oy = cy + Math.sin(ang) * o.radius * 0.45;
+        ctx.save();
+        ctx.globalAlpha = o.alpha * 0.88;
+        ctx.translate(ox, oy);
+        ctx.rotate(ang * 0.3);
+        ctx.drawImage(o.img, -o.sz/2, -o.sz*0.375, o.sz, o.sz*0.75);
+        ctx.restore();
+      });
+    }
+  }
+
+  // Trim trail
+  if (trailPoints.length > 40) trailPoints.shift();
+}
+
+draw();
+
+// ── MEDIAPIPE SETUP ───────────────────────────────────────────────────────────
+const videoEl = document.getElementById('video');
+const statusEl = document.getElementById('status');
+
+const hands = new Hands({
+  locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`
+});
+
+hands.setOptions({
+  maxNumHands: 1,
+  modelComplexity: 0,       // 0 = fastest
+  minDetectionConfidence: 0.7,
+  minTrackingConfidence: 0.6,
+  selfieMode: true,
+});
+
+let lastSpawnTime = 0;
+
+hands.onResults(results => {
+  statusEl.textContent = '';
+  if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
+    handVisible = false;
+    prevGesture = gesture;
+    gesture = 'NONE';
+    if (ballActive) { releaseBall(ballX, ballY); }
+    prevPinchDist = null;
+    if (pullActive) releasePull();
+    return;
+  }
+
+  handVisible = true;
+  const lm = results.multiHandLandmarks[0];
+  const g = detectGesture(lm);
+  prevGesture = gesture;
+  gesture = g.name;
+
+  // Normalized -> screen coords (mirrored)
+  const sx = (1 - g.x) * W();
+  const sy = g.y * H();
+  fingerPos = {x: 1 - g.x, y: g.y};
+
+  // FIST → activate ball
+  if (gesture === 'FIST') {
+    if (prevGesture !== 'FIST') activateBall(sx, sy);
+    else { ballX += (sx - ballX) * 0.2; ballY += (sy - ballY) * 0.2; }
+    trailPoints = [];
+  }
+
+  // OPEN → release ball
+  if (gesture === 'OPEN' && prevGesture === 'FIST') {
+    releaseBall(sx, sy);
+  }
+
+  // ONE FINGER → trail + spawn images
+  if (gesture === 'ONE') {
+    trailPoints.push({x: sx, y: sy});
+    const now = Date.now();
+    if (now - lastSpawnTime > 350) {
+      addTrailImage(sx + (Math.random()-0.5)*60, sy + (Math.random()-0.5)*60);
+      lastSpawnTime = now;
+    }
+  } else {
+    if (trailPoints.length) trailPoints = [];
+  }
+
+  // TWO FINGERS → orbit
+  if (gesture === 'TWO' && prevGesture !== 'TWO') buildOrbit();
+
+  // THUMB UP → pull floaters
+  if (gesture === 'THUMB_UP' && prevGesture !== 'THUMB_UP') activatePull();
+  if (gesture !== 'THUMB_UP' && prevGesture === 'THUMB_UP') releasePull();
+
+  // PINCH → scale
+  if (gesture === 'PINCH') {
+    pinchActive = true;
+    updatePinch(g.dist);
+  } else {
+    if (pinchActive) { prevPinchDist = null; pinchActive = false; }
+  }
+});
+
+// ── CAMERA START ──────────────────────────────────────────────────────────────
+async function startCamera() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { width: {ideal:640}, height: {ideal:480}, facingMode: 'user' },
+      audio: false
+    });
+    videoEl.srcObject = stream;
+    await videoEl.play();
+    statusEl.textContent = 'Đang tải mô hình AI...';
+
+    const camera = new Camera(videoEl, {
+      onFrame: async () => { await hands.send({image: videoEl}); },
+      width: 640, height: 480
+    });
+    camera.start();
+    statusEl.textContent = '';
+  } catch(e) {
+    statusEl.textContent = 'Không thể truy cập camera: ' + e.message;
+    console.error(e);
+  }
+}
+
+// ── FILE UPLOAD ───────────────────────────────────────────────────────────────
+document.getElementById('upload-btn').onclick = () => {
+  document.getElementById('file-input').click();
+};
+
+document.getElementById('file-input').onchange = e => {
+  const files = Array.from(e.target.files);
+  files.forEach(file => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      images.push({img, src: url});
+      spawnFloaters();
+    };
+    img.src = url;
+  });
+  e.target.value = '';
+};
+
+// ── INIT ──────────────────────────────────────────────────────────────────────
+loadDefaults();
+startCamera();
+</script>
+</body>
+</html>
