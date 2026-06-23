@@ -14,15 +14,23 @@
   }
   #stage { position: fixed; inset: 0; }
 
+  /* Bộ lọc dùng CHUNG cho camera và các tấm ảnh → cùng một màu sắc, độ sáng, độ nét */
+  :root {
+    --look: brightness(1.2) contrast(1.12) saturate(1.15);
+  }
   /* Camera nét, sáng nhất làm nền */
   #cam {
     position: fixed; inset: 0; width: 100%; height: 100%;
     object-fit: cover; transform: scaleX(-1);
-    filter: brightness(1.25) contrast(1.08) saturate(1.12) sharpness(1);
-    opacity: 0.30;
+    filter: var(--look);
+    image-rendering: -webkit-optimize-contrast;
+    opacity: 0.9;
   }
-  /* Canvas vẽ ảnh nằm trên camera */
-  #fx { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+  /* Canvas vẽ ảnh nằm trên camera — cùng bộ lọc để màu sắc/độ sáng/độ nét đồng đều */
+  #fx {
+    position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none;
+    filter: var(--look);
+  }
 
   /* ---- UI gọn, tự ẩn khỏi màn hình ---- */
   #addBtn {
@@ -445,6 +453,8 @@ async function startCamera() {
     }
     cam.srcObject = stream;
     await cam.play();
+    // Ép độ sáng / độ nét / lấy nét cao nhất mà thiết bị hỗ trợ (200MP-class sensors)
+    tuneCameraQuality(stream);
     gate.classList.add('gone');
     initMediaPipe();
   } catch (err) {
@@ -456,6 +466,25 @@ async function startCamera() {
   }
 }
 document.getElementById('retryBtn').addEventListener('click', startCamera);
+
+/* Đẩy độ sáng/độ nét/độ tương phản/lấy nét lên mức tối đa của cảm biến nếu trình duyệt cho phép */
+async function tuneCameraQuality(stream) {
+  const track = stream.getVideoTracks()[0];
+  if (!track || !track.getCapabilities) return;
+  try {
+    const caps = track.getCapabilities();
+    const adv = {};
+    const setMax = (k) => { if (caps[k] && typeof caps[k].max === 'number') adv[k] = caps[k].max; };
+    setMax('brightness');
+    setMax('sharpness');
+    setMax('contrast');
+    setMax('saturation');
+    if (caps.focusMode && caps.focusMode.includes('continuous')) adv.focusMode = 'continuous';
+    if (caps.exposureMode && caps.exposureMode.includes('continuous')) adv.exposureMode = 'continuous';
+    if (caps.whiteBalanceMode && caps.whiteBalanceMode.includes('continuous')) adv.whiteBalanceMode = 'continuous';
+    if (Object.keys(adv).length) await track.applyConstraints({ advanced: [adv] });
+  } catch (e) { /* thiết bị không hỗ trợ — bỏ qua, đã có bộ lọc CSS bù lại */ }
+}
 
 /* ---------- MediaPipe Hands + Face Detection ---------- */
 let hands = null, faceDet = null;
