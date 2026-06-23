@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>Điều khiển ảnh bằng cử chỉ tay 🤚📸</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100%; height: 100%; overflow: hidden;
+    background: #04060c; color: #e8eefc;
+    font-family: -apple-system, "Segoe UI", Roboto, system-ui, sans-serif;
+    -webkit-user-select: none; user-select: none;
+  }
+  #stage { position: fixed; inset: 0; }
+
+  /* Camera nét, sáng nhất làm nền */
+  #cam {
+    position: fixed; inset: 0; width: 100%; height: 100%;
+    object-fit: cover; transform: scaleX(-1);
+    filter: brightness(1.25) contrast(1.08) saturate(1.12) sharpness(1);
+    opacity: 0.30;
+  }
+  /* Canvas vẽ ảnh nằm trên camera */
+  #fx { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+
+  /* ---- UI gọn, tự ẩn khỏi màn hình ---- */
+  #addBtn {
+    position: fixed; top: 14px; left: 14px; z-index: 30;
+    width: 44px; height: 44px; border-radius: 12px;
+    background: rgba(20,28,48,.30); border: 1px solid rgba(120,160,255,.22);
+    color: #cfe0ff; font-size: 24px; line-height: 1; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    opacity: .14; transition: opacity .25s ease, background .25s ease;
+  }
+  #addBtn:hover { opacity: 1; background: rgba(40,70,140,.55); }
+
+  #helpBtn {
+    position: fixed; top: 14px; right: 14px; z-index: 30;
+    width: 44px; height: 44px; border-radius: 12px;
+    background: rgba(20,28,48,.30); border: 1px solid rgba(120,160,255,.22);
+    color: #cfe0ff; font-size: 18px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    opacity: .14; transition: opacity .25s ease, background .25s ease;
+  }
+  #helpBtn:hover { opacity: 1; background: rgba(40,70,140,.55); }
+
+  /* Trạng thái cử chỉ — nhỏ, mờ, tự ẩn */
+  #status {
+    position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%);
+    background: rgba(10,16,30,.45); backdrop-filter: blur(6px);
+    border: 1px solid rgba(120,160,255,.18);
+    padding: 6px 14px; border-radius: 999px; font-size: 12px; letter-spacing: .2px;
+    color: #aac3ff; z-index: 25; white-space: nowrap;
+    opacity: 0; transition: opacity .5s ease; pointer-events: none;
+  }
+  #status.show { opacity: .85; }
+
+  /* Bảng hướng dẫn — ẩn mặc định, mở bằng nút ? hoặc phím H */
+  #help {
+    position: fixed; inset: 0; z-index: 40; display: none;
+    align-items: center; justify-content: center;
+    background: rgba(3,6,14,.82); backdrop-filter: blur(10px);
+  }
+  #help.show { display: flex; }
+  #help .card {
+    width: min(560px, 92vw); max-height: 86vh; overflow: auto;
+    background: linear-gradient(160deg, rgba(22,30,54,.96), rgba(12,16,32,.96));
+    border: 1px solid rgba(120,160,255,.28); border-radius: 18px; padding: 26px 28px;
+    box-shadow: 0 30px 80px rgba(0,0,0,.6);
+  }
+  #help h1 { font-size: 19px; margin-bottom: 6px; }
+  #help p.sub { color: #93a6cc; font-size: 13px; margin-bottom: 16px; }
+  #help table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  #help td { padding: 8px 6px; border-bottom: 1px solid rgba(120,160,255,.12); vertical-align: top; }
+  #help td.g { width: 64px; font-size: 22px; text-align: center; }
+  #help .close { margin-top: 18px; text-align: center; color: #8fa6d0; font-size: 12px; }
+
+  /* Lớp che lúc xin quyền camera */
+  #gate {
+    position: fixed; inset: 0; z-index: 50; display: flex;
+    align-items: center; justify-content: center; flex-direction: column; gap: 16px;
+    background: radial-gradient(circle at 50% 40%, #0a1124, #04060c);
+    text-align: center; padding: 24px; transition: opacity .6s ease;
+  }
+  #gate.gone { opacity: 0; pointer-events: none; }
+  #gate .spin {
+    width: 46px; height: 46px; border-radius: 50%;
+    border: 3px solid rgba(120,160,255,.25); border-top-color: #6ea8ff;
+    animation: spin 1s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #gate h2 { font-size: 18px; font-weight: 600; }
+  #gate p { font-size: 13px; color: #93a6cc; max-width: 380px; line-height: 1.5; }
+  #gate button {
+    margin-top: 8px; padding: 10px 22px; border-radius: 10px; cursor: pointer;
+    background: #2f5ad0; border: none; color: #fff; font-size: 14px; display: none;
+  }
+  #gate.error button { display: inline-block; }
+  #gate.error .spin { display: none; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <video id="cam" autoplay playsinline muted></video>
+  <canvas id="fx"></canvas>
+</div>
+
+<button id="addBtn" title="Thêm ảnh từ máy">＋</button>
+<button id="helpBtn" title="Hướng dẫn (H)">?</button>
+<input id="fileInput" type="file" accept="image/*" multiple style="display:none" />
+<div id="status"></div>
+
+<div id="help">
+  <div class="card">
+    <h1>Điều khiển ảnh bằng cử chỉ tay 🤚</h1>
+    <p class="sub">Đưa tay vào khung hình camera. Khi không có cử chỉ, ảnh sẽ lơ lửng nhẹ nhàng.</p>
+    <table>
+      <tr><td class="g">✋</td><td><b>Mở bàn tay</b> — các tấm ảnh xoay tròn quanh tâm.</td></tr>
+      <tr><td class="g">☝️</td><td><b>Một ngón tay</b> — xếp ảnh thành hàng ngang.</td></tr>
+      <tr><td class="g">🤏</td><td><b>Chạm / chụm ngón</b> — phóng to · thu nhỏ kích thước ảnh.</td></tr>
+      <tr><td class="g">😀</td><td><b>Khuôn mặt</b> — ảnh xoay quanh khuôn mặt của bạn.</td></tr>
+    </table>
+    <p class="close">Nhấn <b>H</b> hoặc bấm ra ngoài để đóng · Bấm <b>＋</b> để thêm ảnh từ máy.</p>
+  </div>
+</div>
+
+<div id="gate">
+  <div class="spin"></div>
+  <h2 id="gateTitle">Đang bật camera…</h2>
+  <p id="gateMsg">Vui lòng chọn <b>Cho phép (Allow)</b> khi trình duyệt hỏi quyền truy cập camera.</p>
+  <button id="retryBtn">Thử lại</button>
+</div>
+
+<script type="module">
+/* ===================================================================
+   Điều khiển ảnh bằng cử chỉ tay + nhận diện khuôn mặt
+   - MediaPipe Hands (độ trễ thấp nhất) + Face Detection
+   - Vẽ ảnh trên canvas, nội suy mượt (lerp) tách khỏi vòng nhận diện
+=================================================================== */
+
+const cam   = document.getElementById('cam');
+const fx    = document.getElementById('fx');
+const ctx   = fx.getContext('2d');
+const gate  = document.getElementById('gate');
+const statusEl = document.getElementById('status');
+
+let W = 0, H = 0, DPR = Math.min(window.devicePixelRatio || 1, 2);
+function resize() {
+  W = window.innerWidth; H = window.innerHeight;
+  fx.width  = Math.round(W * DPR);
+  fx.height = Math.round(H * DPR);
+  fx.style.width = W + 'px';
+  fx.style.height = H + 'px';
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+}
+window.addEventListener('resize', resize);
+resize();
+
+/* ---------- Kho ảnh (sprite) ---------- */
+const DEFAULT_IMAGES = [
+  'images/photo1.webp','images/photo2.webp','images/photo3.webp','images/photo4.webp',
+  'images/photo5.webp','images/photo6.webp','images/photo7.webp','images/photo8.jpg'
+];
+
+const sprites = [];
+function makeSprite(img) {
+  const s = {
+    img,
+    // vị trí hiện tại (current) & mục tiêu (target)
+    x: W/2 + (Math.random()-.5)*W*0.5,
+    y: H/2 + (Math.random()-.5)*H*0.5,
+    tx: 0, ty: 0,
+    scale: 1, tscale: 1,
+    rot: 0, trot: 0,
+    // tham số lơ lửng
+    phase: Math.random()*Math.PI*2,
+    floatAmp: 12 + Math.random()*16,
+    floatSpeed: 0.4 + Math.random()*0.5,
+    baseX: 0, baseY: 0
+  };
+  s.tx = s.x; s.ty = s.y; s.baseX = s.x; s.baseY = s.y;
+  sprites.push(s);
+  return s;
+}
+function addImage(src) {
+  const img = new Image();
+  img.onload = () => makeSprite(img);
+  img.src = src;
+}
+DEFAULT_IMAGES.forEach(addImage);
+
+/* ---------- Thêm ảnh từ thư viện máy ---------- */
+const fileInput = document.getElementById('fileInput');
+document.getElementById('addBtn').addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', (e) => {
+  for (const f of e.target.files) {
+    if (!f.type.startsWith('image/')) continue;
+    const url = URL.createObjectURL(f);
+    const img = new Image();
+    img.onload = () => { makeSprite(img); URL.revokeObjectURL(url); };
+    img.src = url;
+  }
+  fileInput.value = '';
+});
+
+/* ---------- Bảng hướng dẫn (ẩn mặc định) ---------- */
+const help = document.getElementById('help');
+document.getElementById('helpBtn').addEventListener('click', () => help.classList.toggle('show'));
+help.addEventListener('click', (e) => { if (e.target === help) help.classList.remove('show'); });
+window.addEventListener('keydown', (e) => { if (e.key.toLowerCase() === 'h') help.classList.toggle('show'); });
+
+/* ---------- Trạng thái cử chỉ hiện trên màn hình rồi tự ẩn ---------- */
+let statusTimer = null, lastStatus = '';
+function showStatus(txt) {
+  if (txt === lastStatus) return;
+  lastStatus = txt;
+  statusEl.textContent = txt;
+  statusEl.classList.add('show');
+  clearTimeout(statusTimer);
+  statusTimer = setTimeout(() => statusEl.classList.remove('show'), 1400);
+}
+
+/* ===================================================================
+   GESTURE STATE — kết quả nhận diện mới nhất (cập nhật bởi MediaPipe)
+=================================================================== */
+const G = {
+  mode: 'float',          // float | circle | row | face
+  hasHand: false,
+  pinch: null,            // khoảng cách chụm ngón (0..1) hoặc null
+  face: null,             // {x, y, r} theo pixel, hoặc null
+  globalScale: 1,         // điều khiển kích thước bằng chụm/chạm
+  lastSeen: 0
+};
+
+/* ===================================================================
+   VÒNG VẼ (render loop) — luôn 60fps, độc lập với nhận diện
+=================================================================== */
+let t0 = performance.now();
+function lerp(a, b, k){ return a + (b - a) * k; }
+
+function layout(now) {
+  const n = sprites.length;
+  if (n === 0) return;
+  const t = now / 1000;
+
+  if (G.mode === 'circle') {
+    // ✋ Mở bàn tay → xoay tròn quanh tâm
+    const cx = W/2, cy = H/2;
+    const R = Math.min(W, H) * 0.32;
+    const spin = t * 0.6;
+    sprites.forEach((s, i) => {
+      const a = spin + i / n * Math.PI * 2;
+      s.tx = cx + Math.cos(a) * R;
+      s.ty = cy + Math.sin(a) * R;
+      s.trot = a + Math.PI/2;
+      s.tscale = 0.85 * G.globalScale;
+    });
+  } else if (G.mode === 'row') {
+    // ☝️ Một ngón → xếp hàng ngang
+    const gap = Math.min(W / (n + 1), 220);
+    const startX = W/2 - gap * (n - 1) / 2;
+    sprites.forEach((s, i) => {
+      s.tx = startX + gap * i;
+      s.ty = H/2;
+      s.trot = 0;
+      s.tscale = 0.9 * G.globalScale;
+    });
+  } else if (G.mode === 'face' && G.face) {
+    // 😀 Khuôn mặt → ảnh xoay quanh mặt
+    const { x: cx, y: cy, r } = G.face;
+    const R = r * 2.2;
+    const spin = t * 0.8;
+    sprites.forEach((s, i) => {
+      const a = spin + i / n * Math.PI * 2;
+      s.tx = cx + Math.cos(a) * R;
+      s.ty = cy + Math.sin(a) * R;
+      s.trot = a + Math.PI/2;
+      s.tscale = 0.55 * G.globalScale;
+    });
+  } else {
+    // Lơ lửng (không cử chỉ)
+    sprites.forEach((s) => {
+      s.tx = s.baseX + Math.sin(t * s.floatSpeed + s.phase) * s.floatAmp;
+      s.ty = s.baseY + Math.cos(t * s.floatSpeed * 0.9 + s.phase) * s.floatAmp;
+      s.trot = Math.sin(t * 0.3 + s.phase) * 0.08;
+      s.tscale = 1 * G.globalScale;
+    });
+  }
+}
+
+function drawSprite(s) {
+  const img = s.img;
+  const maxW = Math.min(W, H) * 0.26;
+  const ratio = img.naturalHeight / img.naturalWidth || 1;
+  const w = maxW * s.scale;
+  const h = w * ratio;
+  ctx.save();
+  ctx.translate(s.x, s.y);
+  ctx.rotate(s.rot);
+  ctx.shadowColor = 'rgba(0,0,0,.45)';
+  ctx.shadowBlur = 22;
+  ctx.shadowOffsetY = 10;
+  // viền sáng nhẹ
+  ctx.fillStyle = '#fff';
+  const pad = 4;
+  drawRounded(-w/2 - pad, -h/2 - pad, w + pad*2, h + pad*2, 10);
+  ctx.fill();
+  ctx.shadowColor = 'transparent';
+  ctx.drawImage(img, -w/2, -h/2, w, h);
+  ctx.restore();
+}
+function drawRounded(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x+r, y);
+  ctx.arcTo(x+w, y, x+w, y+h, r);
+  ctx.arcTo(x+w, y+h, x, y+h, r);
+  ctx.arcTo(x, y+h, x, y, r);
+  ctx.arcTo(x, y, x+w, y, r);
+  ctx.closePath();
+}
+
+function render(now) {
+  layout(now);
+  ctx.clearRect(0, 0, W, H);
+  const k = 0.18; // hệ số nội suy mượt → độ trễ thấp, chuyển động mượt
+  for (const s of sprites) {
+    s.x = lerp(s.x, s.tx, k);
+    s.y = lerp(s.y, s.ty, k);
+    s.scale = lerp(s.scale, s.tscale, k);
+    s.rot = lerp(s.rot, s.trot, k);
+  }
+  // khi không ở chế độ float, lưu vị trí làm điểm neo cho lần lơ lửng sau
+  if (G.mode !== 'float') {
+    for (const s of sprites) { s.baseX = s.x; s.baseY = s.y; }
+  }
+  for (const s of sprites) drawSprite(s);
+  requestAnimationFrame(render);
+}
+requestAnimationFrame(render);
+
+/* ===================================================================
+   ĐIỀU KHIỂN KÍCH THƯỚC BẰNG CHẠM MÀN HÌNH (zoom)
+=================================================================== */
+let pinchStart = null, scaleStart = 1;
+function touchDist(touches) {
+  const dx = touches[0].clientX - touches[1].clientX;
+  const dy = touches[0].clientY - touches[1].clientY;
+  return Math.hypot(dx, dy);
+}
+fx.addEventListener('touchstart', (e) => {
+  if (e.touches.length === 2) { pinchStart = touchDist(e.touches); scaleStart = G.globalScale; }
+}, { passive: true });
+fx.addEventListener('touchmove', (e) => {
+  if (e.touches.length === 2 && pinchStart) {
+    const d = touchDist(e.touches);
+    G.globalScale = Math.max(0.3, Math.min(2.5, scaleStart * d / pinchStart));
+    showStatus('Kích thước: ' + Math.round(G.globalScale * 100) + '%');
+  }
+}, { passive: true });
+fx.addEventListener('touchend', () => { pinchStart = null; }, { passive: true });
+// Cuộn chuột để zoom (trên máy tính)
+fx.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  G.globalScale = Math.max(0.3, Math.min(2.5, G.globalScale * (e.deltaY < 0 ? 1.06 : 0.94)));
+  showStatus('Kích thước: ' + Math.round(G.globalScale * 100) + '%');
+}, { passive: false });
+
+/* ===================================================================
+   NHẬN DIỆN CỬ CHỈ — phân tích landmark bàn tay
+=================================================================== */
+// đầu ngón: 8 trỏ, 12 giữa, 16 áp út, 20 út, 4 cái
+// khớp PIP: 6, 10, 14, 18
+function fingersUp(lm) {
+  const up = [];
+  // 4 ngón dài: đầu ngón cao hơn khớp PIP (y nhỏ hơn)
+  const tips = [8, 12, 16, 20], pips = [6, 10, 14, 18];
+  for (let i = 0; i < 4; i++) up.push(lm[tips[i]].y < lm[pips[i]].y - 0.02 ? 1 : 0);
+  // ngón cái: so theo trục x
+  const thumb = Math.abs(lm[4].x - lm[2].x) > 0.05 ? 1 : 0;
+  return { thumb, index: up[0], middle: up[1], ring: up[2], pinky: up[3], count: up.reduce((a,b)=>a+b,0) };
+}
+
+function classify(lm) {
+  const f = fingersUp(lm);
+  // chụm ngón (cái + trỏ gần nhau) → điều khiển kích thước
+  const pinchDist = Math.hypot(lm[4].x - lm[8].x, lm[4].y - lm[8].y);
+  if (pinchDist < 0.06) return { mode: 'pinch', pinch: pinchDist };
+
+  if (f.count >= 4) return { mode: 'circle' };           // ✋ mở bàn tay
+  if (f.count === 1 && f.index) return { mode: 'row' };  // ☝️ một ngón trỏ
+  if (f.count === 1) return { mode: 'row' };             // một ngón bất kỳ
+  return { mode: 'hold' };
+}
+
+let pinchRef = null, scaleRefHand = 1;
+function applyHand(lm) {
+  G.hasHand = true;
+  G.lastSeen = performance.now();
+  const r = classify(lm);
+
+  if (r.mode === 'pinch') {
+    // 🤏 chụm ngón điều khiển kích thước (giống chạm màn hình)
+    if (pinchRef === null) { pinchRef = r.pinch; scaleRefHand = G.globalScale; }
+    const ratio = r.pinch / pinchRef;
+    G.globalScale = Math.max(0.3, Math.min(2.5, scaleRefHand + (ratio - 1) * 1.6));
+    showStatus('🤏 Kích thước: ' + Math.round(G.globalScale * 100) + '%');
+    // giữ nguyên mode bố cục hiện tại trong lúc zoom
+    return;
+  }
+  pinchRef = null;
+
+  if (r.mode === 'circle') { setMode('circle', '✋ Xoay tròn'); }
+  else if (r.mode === 'row') { setMode('row', '☝️ Hàng ngang'); }
+  // 'hold' → giữ nguyên bố cục hiện tại
+}
+
+function setMode(mode, label) {
+  if (G.mode !== mode) { G.mode = mode; showStatus(label); }
+}
+
+/* ===================================================================
+   KHỞI ĐỘNG CAMERA + MEDIAPIPE
+=================================================================== */
+async function startCamera() {
+  gate.classList.remove('error');
+  document.getElementById('gateTitle').textContent = 'Đang bật camera…';
+  try {
+    // Yêu cầu độ phân giải cao nhất + camera trước, sáng/nét nhất
+    const constraints = {
+      audio: false,
+      video: {
+        facingMode: 'user',
+        width:  { ideal: 3840 },
+        height: { ideal: 2160 },
+        frameRate: { ideal: 60 }
+      }
+    };
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia(constraints);
+    } catch {
+      // dự phòng nếu thiết bị không hỗ trợ 4K
+      stream = await navigator.mediaDevices.getUserMedia({ audio:false, video:{ facingMode:'user' } });
+    }
+    cam.srcObject = stream;
+    await cam.play();
+    gate.classList.add('gone');
+    initMediaPipe();
+  } catch (err) {
+    gate.classList.add('error');
+    document.getElementById('gateTitle').textContent = 'Không truy cập được camera';
+    document.getElementById('gateMsg').innerHTML =
+      'Hãy cấp quyền camera cho trang (biểu tượng 🎥 trên thanh địa chỉ) rồi bấm <b>Thử lại</b>.<br>' +
+      'Lưu ý: camera chỉ chạy trên <b>HTTPS</b> hoặc <b>localhost</b>.<br><small>' + (err.message || err.name) + '</small>';
+  }
+}
+document.getElementById('retryBtn').addEventListener('click', startCamera);
+
+/* ---------- MediaPipe Hands + Face Detection ---------- */
+let hands = null, faceDet = null;
+let frame = 0;
+
+function initMediaPipe() {
+  hands = new Hands({ locateFile: (file) =>
+    `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}` });
+  hands.setOptions({
+    maxNumHands: 1,
+    modelComplexity: 0,      // nhẹ nhất → độ trễ thấp nhất
+    minDetectionConfidence: 0.6,
+    minTrackingConfidence: 0.5
+  });
+  hands.onResults(onHandResults);
+
+  faceDet = new FaceDetection({ locateFile: (file) =>
+    `https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/${file}` });
+  faceDet.setOptions({ model: 'short', minDetectionConfidence: 0.6 });
+  faceDet.onResults(onFaceResults);
+
+  pump();
+}
+
+// Vòng đẩy khung hình vào MediaPipe — tay mỗi khung, mặt mỗi 4 khung
+async function pump() {
+  if (cam.readyState >= 2) {
+    try {
+      await hands.send({ image: cam });
+      if (frame % 4 === 0) await faceDet.send({ image: cam });
+    } catch (e) { /* bỏ qua khung lỗi */ }
+  }
+  frame++;
+  requestAnimationFrame(pump);
+}
+
+function onHandResults(res) {
+  if (res.multiHandLandmarks && res.multiHandLandmarks.length > 0) {
+    const lm = res.multiHandLandmarks[0].map(p => ({ x: 1 - p.x, y: p.y })); // lật theo camera gương
+    applyHand(lm);
+  } else {
+    G.hasHand = false;
+    // hết tay một lúc → quay về lơ lửng (trừ khi đang xoay quanh mặt)
+    if (performance.now() - G.lastSeen > 700) {
+      if (G.mode !== 'face') setMode('float', '🫧 Lơ lửng');
+    }
+    pinchRef = null;
+  }
+}
+
+function onFaceResults(res) {
+  if (res.detections && res.detections.length > 0) {
+    const d = res.detections[0];
+    const box = d.boundingBox;
+    // toạ độ tương đối → pixel (lật gương theo trục x)
+    const cx = (1 - box.xCenter) * W;
+    const cy = box.yCenter * H;
+    const r = (box.width * W + box.height * H) / 4;
+    G.face = { x: cx, y: cy, r };
+    // Nếu không có cử chỉ tay → ảnh xoay quanh khuôn mặt
+    if (!G.hasHand) setMode('face', '😀 Xoay quanh khuôn mặt');
+  } else {
+    G.face = null;
+    if (G.mode === 'face' && !G.hasHand) setMode('float', '🫧 Lơ lửng');
+  }
+}
+
+/* ---------- Nạp thư viện MediaPipe rồi tự bật camera ---------- */
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = src; s.crossOrigin = 'anonymous';
+    s.onload = resolve; s.onerror = () => reject(new Error('Không tải được ' + src));
+    document.head.appendChild(s);
+  });
+}
+
+(async function boot() {
+  try {
+    await loadScript('https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js');
+    await loadScript('https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/face_detection.js');
+  } catch (e) {
+    console.warn(e); // vẫn cho camera chạy dù không tải được model
+  }
+  // Tự động truy cập camera ngay khi mở trang
+  startCamera();
+})();
+</script>
+</body>
+</html>
