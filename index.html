@@ -14,15 +14,23 @@
   }
   #stage { position: fixed; inset: 0; }
 
+  /* Bộ lọc dùng CHUNG cho camera và các tấm ảnh → cùng một màu sắc, độ sáng, độ nét */
+  :root {
+    --look: brightness(1.2) contrast(1.12) saturate(1.15);
+  }
   /* Camera nét, sáng nhất làm nền */
   #cam {
     position: fixed; inset: 0; width: 100%; height: 100%;
     object-fit: cover; transform: scaleX(-1);
-    filter: brightness(1.25) contrast(1.08) saturate(1.12) sharpness(1);
-    opacity: 0.30;
+    filter: var(--look);
+    image-rendering: -webkit-optimize-contrast;
+    opacity: 0.9;
   }
-  /* Canvas vẽ ảnh nằm trên camera */
-  #fx { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+  /* Canvas vẽ ảnh nằm trên camera — cùng bộ lọc để màu sắc/độ sáng/độ nét đồng đều */
+  #fx {
+    position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none;
+    filter: var(--look);
+  }
 
   /* ---- UI gọn, tự ẩn khỏi màn hình ---- */
   #addBtn {
@@ -119,7 +127,6 @@
       <tr><td class="g">✋</td><td><b>Mở bàn tay</b> — các tấm ảnh xoay tròn quanh tâm.</td></tr>
       <tr><td class="g">☝️</td><td><b>Một ngón tay</b> — xếp ảnh thành hàng ngang.</td></tr>
       <tr><td class="g">🤏</td><td><b>Chạm / chụm ngón</b> — phóng to · thu nhỏ kích thước ảnh.</td></tr>
-      <tr><td class="g">😀</td><td><b>Khuôn mặt</b> — ảnh xoay quanh khuôn mặt của bạn.</td></tr>
     </table>
     <p class="close">Nhấn <b>H</b> hoặc bấm ra ngoài để đóng · Bấm <b>＋</b> để thêm ảnh từ máy.</p>
   </div>
@@ -134,8 +141,8 @@
 
 <script type="module">
 /* ===================================================================
-   Điều khiển ảnh bằng cử chỉ tay + nhận diện khuôn mặt
-   - MediaPipe Hands (độ trễ thấp nhất) + Face Detection
+   Điều khiển ảnh bằng cử chỉ tay
+   - MediaPipe Hands (độ trễ thấp nhất)
    - Vẽ ảnh trên canvas, nội suy mượt (lerp) tách khỏi vòng nhận diện
 =================================================================== */
 
@@ -225,10 +232,9 @@ function showStatus(txt) {
    GESTURE STATE — kết quả nhận diện mới nhất (cập nhật bởi MediaPipe)
 =================================================================== */
 const G = {
-  mode: 'float',          // float | circle | row | face
+  mode: 'float',          // float | circle | row
   hasHand: false,
   pinch: null,            // khoảng cách chụm ngón (0..1) hoặc null
-  face: null,             // {x, y, r} theo pixel, hoặc null
   globalScale: 1,         // điều khiển kích thước bằng chụm/chạm
   lastSeen: 0
 };
@@ -265,18 +271,6 @@ function layout(now) {
       s.ty = H/2;
       s.trot = 0;
       s.tscale = 0.9 * G.globalScale;
-    });
-  } else if (G.mode === 'face' && G.face) {
-    // 😀 Khuôn mặt → ảnh xoay quanh mặt
-    const { x: cx, y: cy, r } = G.face;
-    const R = r * 2.2;
-    const spin = t * 0.8;
-    sprites.forEach((s, i) => {
-      const a = spin + i / n * Math.PI * 2;
-      s.tx = cx + Math.cos(a) * R;
-      s.ty = cy + Math.sin(a) * R;
-      s.trot = a + Math.PI/2;
-      s.tscale = 0.55 * G.globalScale;
     });
   } else {
     // Lơ lửng (không cử chỉ)
@@ -445,6 +439,8 @@ async function startCamera() {
     }
     cam.srcObject = stream;
     await cam.play();
+    // Ép độ sáng / độ nét / lấy nét cao nhất mà thiết bị hỗ trợ (200MP-class sensors)
+    tuneCameraQuality(stream);
     gate.classList.add('gone');
     initMediaPipe();
   } catch (err) {
@@ -457,9 +453,27 @@ async function startCamera() {
 }
 document.getElementById('retryBtn').addEventListener('click', startCamera);
 
-/* ---------- MediaPipe Hands + Face Detection ---------- */
-let hands = null, faceDet = null;
-let frame = 0;
+/* Đẩy độ sáng/độ nét/độ tương phản/lấy nét lên mức tối đa của cảm biến nếu trình duyệt cho phép */
+async function tuneCameraQuality(stream) {
+  const track = stream.getVideoTracks()[0];
+  if (!track || !track.getCapabilities) return;
+  try {
+    const caps = track.getCapabilities();
+    const adv = {};
+    const setMax = (k) => { if (caps[k] && typeof caps[k].max === 'number') adv[k] = caps[k].max; };
+    setMax('brightness');
+    setMax('sharpness');
+    setMax('contrast');
+    setMax('saturation');
+    if (caps.focusMode && caps.focusMode.includes('continuous')) adv.focusMode = 'continuous';
+    if (caps.exposureMode && caps.exposureMode.includes('continuous')) adv.exposureMode = 'continuous';
+    if (caps.whiteBalanceMode && caps.whiteBalanceMode.includes('continuous')) adv.whiteBalanceMode = 'continuous';
+    if (Object.keys(adv).length) await track.applyConstraints({ advanced: [adv] });
+  } catch (e) { /* thiết bị không hỗ trợ — bỏ qua, đã có bộ lọc CSS bù lại */ }
+}
+
+/* ---------- MediaPipe Hands ---------- */
+let hands = null;
 
 function initMediaPipe() {
   hands = new Hands({ locateFile: (file) =>
@@ -472,23 +486,16 @@ function initMediaPipe() {
   });
   hands.onResults(onHandResults);
 
-  faceDet = new FaceDetection({ locateFile: (file) =>
-    `https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/${file}` });
-  faceDet.setOptions({ model: 'short', minDetectionConfidence: 0.6 });
-  faceDet.onResults(onFaceResults);
-
   pump();
 }
 
-// Vòng đẩy khung hình vào MediaPipe — tay mỗi khung, mặt mỗi 4 khung
+// Vòng đẩy khung hình vào MediaPipe — nhận diện tay mỗi khung hình
 async function pump() {
   if (cam.readyState >= 2) {
     try {
       await hands.send({ image: cam });
-      if (frame % 4 === 0) await faceDet.send({ image: cam });
     } catch (e) { /* bỏ qua khung lỗi */ }
   }
-  frame++;
   requestAnimationFrame(pump);
 }
 
@@ -498,28 +505,11 @@ function onHandResults(res) {
     applyHand(lm);
   } else {
     G.hasHand = false;
-    // hết tay một lúc → quay về lơ lửng (trừ khi đang xoay quanh mặt)
+    // hết tay một lúc → quay về lơ lửng
     if (performance.now() - G.lastSeen > 700) {
-      if (G.mode !== 'face') setMode('float', '🫧 Lơ lửng');
+      setMode('float', '🫧 Lơ lửng');
     }
     pinchRef = null;
-  }
-}
-
-function onFaceResults(res) {
-  if (res.detections && res.detections.length > 0) {
-    const d = res.detections[0];
-    const box = d.boundingBox;
-    // toạ độ tương đối → pixel (lật gương theo trục x)
-    const cx = (1 - box.xCenter) * W;
-    const cy = box.yCenter * H;
-    const r = (box.width * W + box.height * H) / 4;
-    G.face = { x: cx, y: cy, r };
-    // Nếu không có cử chỉ tay → ảnh xoay quanh khuôn mặt
-    if (!G.hasHand) setMode('face', '😀 Xoay quanh khuôn mặt');
-  } else {
-    G.face = null;
-    if (G.mode === 'face' && !G.hasHand) setMode('float', '🫧 Lơ lửng');
   }
 }
 
@@ -536,7 +526,6 @@ function loadScript(src) {
 (async function boot() {
   try {
     await loadScript('https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js');
-    await loadScript('https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/face_detection.js');
   } catch (e) {
     console.warn(e); // vẫn cho camera chạy dù không tải được model
   }
