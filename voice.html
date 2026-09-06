@@ -1,0 +1,635 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Phòng thử giọng — Nữ 18–20</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@300;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#140A1C; --panel:#20112C; --panel-2:#2A1739; --line:#3D2450;
+    --ink:#F3E9F7; --ink-dim:#B39CC2;
+    --peach:#FF8FA3; --lav:#C77DFF; --mint:#7BE0C0;
+    --radius:14px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:radial-gradient(120% 70% at 50% -10%, #2E1440 0%, transparent 60%), var(--bg);
+    color:var(--ink);
+    font-family:"Be Vietnam Pro", system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-weight:300; line-height:1.6; min-height:100vh; padding:20px 16px 48px;
+  }
+  .wrap{max-width:680px;margin:0 auto}
+
+  .stage{
+    border:1px solid var(--line); border-radius:var(--radius);
+    background:linear-gradient(180deg,#25133340,#1A0D24);
+    padding:22px 18px 16px; margin-bottom:18px;
+  }
+  .wave{display:flex;align-items:center;justify-content:center;gap:4px;height:76px;margin-bottom:14px}
+  .wave i{
+    display:block;width:5px;height:8px;border-radius:3px;
+    background:linear-gradient(180deg,var(--peach),var(--lav));
+    opacity:.35;transform-origin:center;
+  }
+  .playing .wave i{opacity:1;box-shadow:0 0 10px rgba(255,143,163,.45);animation:pulse .85s ease-in-out infinite alternate}
+  @keyframes pulse{from{height:8px}to{height:58px}}
+  @media (prefers-reduced-motion: reduce){.playing .wave i{animation:none;height:30px}}
+
+  h1{font-size:1.45rem;font-weight:700;margin:0 0 4px;letter-spacing:-.01em}
+  .sub{color:var(--ink-dim);font-size:.9rem;margin:0}
+
+  /* thẻ thông số đo từ video */
+  .measured{
+    margin-top:16px;border:1px solid #3A2C1E;border-radius:12px;
+    background:linear-gradient(180deg,rgba(255,180,120,.07),rgba(255,180,120,.02));
+    padding:12px 14px;
+  }
+  .measured h2{margin:0 0 8px;font-size:.82rem;font-weight:500;color:#FFD9A8;letter-spacing:.02em}
+  .measured .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:10px}
+  .measured .cell .k{font-size:.72rem;color:var(--ink-dim)}
+  .measured .cell .v{font-size:1.02rem;font-weight:500;color:#FFE3C2;font-variant-numeric:tabular-nums}
+  .measured p{margin:9px 0 0;font-size:.76rem;color:var(--ink-dim);line-height:1.55}
+
+  .block{margin-bottom:18px}
+  label{display:block;font-size:.85rem;color:var(--ink-dim);margin-bottom:7px}
+  textarea{
+    width:100%;min-height:150px;resize:vertical;
+    background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+    color:var(--ink);font-family:inherit;font-size:1rem;font-weight:300;line-height:1.7;padding:14px;outline:none;
+  }
+  textarea:focus{border-color:var(--peach);box-shadow:0 0 0 3px rgba(255,143,163,.18)}
+
+  #reader{display:none;min-height:150px;background:var(--panel);border:1px solid var(--line);
+    border-radius:var(--radius);padding:14px;font-size:1rem;line-height:1.7}
+  .reading #reader{display:block}
+  .reading #script{display:none}
+  #reader span{color:var(--ink-dim);transition:color .2s}
+  #reader span.now{color:var(--ink);background:rgba(199,125,255,.18);border-radius:4px;padding:1px 2px;
+    box-shadow:0 0 14px rgba(199,125,255,.25)}
+
+  .meta{display:flex;justify-content:space-between;gap:12px;font-size:.8rem;color:var(--ink-dim);margin-top:7px}
+
+  .row{display:flex;gap:8px;align-items:stretch}
+  select{flex:1;min-width:0;background:var(--panel);color:var(--ink);border:1px solid var(--line);
+    border-radius:10px;padding:12px 13px;font-family:inherit;font-size:.95rem;outline:none}
+  select:focus{border-color:var(--peach)}
+  .mini{
+    flex:0 0 auto;border:1px solid var(--line);background:var(--panel);color:var(--ink-dim);
+    border-radius:10px;padding:0 13px;font-family:inherit;font-size:.84rem;cursor:pointer;white-space:nowrap;
+  }
+  .mini:hover{border-color:var(--lav);color:var(--ink)}
+
+  .warn{display:none;margin-top:9px;padding:11px 13px;border:1px solid #6B3A2A;border-radius:10px;
+    background:#33191A;color:#FFC6B8;font-size:.85rem;line-height:1.55}
+  .warn.on{display:block}
+  .tip{display:none;margin-top:9px;padding:11px 13px;border:1px solid #2A4A44;border-radius:10px;
+    background:#14282A;color:#A9E6D6;font-size:.83rem;line-height:1.55}
+  .tip.on{display:block}
+
+  .chips{display:flex;flex-wrap:wrap;gap:8px}
+  .chip{border:1px solid var(--line);background:var(--panel);color:var(--ink-dim);border-radius:999px;
+    padding:8px 14px;font-family:inherit;font-size:.86rem;cursor:pointer;transition:all .15s}
+  .chip:hover{border-color:var(--lav);color:var(--ink)}
+  .chip[aria-pressed="true"]{background:linear-gradient(90deg,rgba(255,143,163,.2),rgba(199,125,255,.2));
+    border-color:var(--peach);color:var(--ink)}
+
+  .knobs{border:1px solid var(--line);border-radius:var(--radius);background:var(--panel);padding:6px 15px 14px}
+  .knob{padding:11px 0;border-bottom:1px solid #33203F}
+  .knob:last-child{border-bottom:none}
+  .knob .top{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;gap:10px}
+  .knob .name{font-size:.9rem}
+  .knob .val{font-size:.85rem;color:var(--peach);font-variant-numeric:tabular-nums}
+  .knob .hint{font-size:.76rem;color:var(--ink-dim);margin-top:5px}
+  .knob .hint b{color:var(--mint);font-weight:500}
+  .toneBtn{
+    border:1px solid var(--line);background:transparent;color:var(--ink-dim);border-radius:999px;
+    padding:3px 10px;font-family:inherit;font-size:.74rem;cursor:pointer;margin-left:8px;
+  }
+  .toneBtn:hover{border-color:var(--mint);color:var(--mint)}
+  input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:4px;border-radius:2px;
+    background:linear-gradient(90deg,var(--peach),var(--lav));outline:none;margin:0}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:22px;height:22px;border-radius:50%;
+    background:#FFF0F4;border:2px solid var(--peach);cursor:pointer;box-shadow:0 0 12px rgba(255,143,163,.5)}
+  input[type=range]::-moz-range-thumb{width:20px;height:20px;border-radius:50%;background:#FFF0F4;
+    border:2px solid var(--peach);cursor:pointer}
+  input[type=range]:focus-visible{box-shadow:0 0 0 3px rgba(199,125,255,.35)}
+
+  .bar{display:flex;gap:10px;margin-top:18px}
+  button.act{flex:1;border:none;border-radius:12px;padding:15px 10px;font-family:inherit;font-size:1rem;
+    font-weight:500;cursor:pointer;transition:filter .15s}
+  .go{background:linear-gradient(95deg,var(--peach),var(--lav));color:#1A0B22;font-weight:700}
+  .go:hover{filter:brightness(1.08)}
+  .ghost{background:transparent;border:1px solid var(--line)!important;color:var(--ink-dim);flex:0 0 32%}
+  .ghost:hover{color:var(--ink);border-color:var(--lav)!important}
+  button:disabled{opacity:.4;cursor:not-allowed}
+  :focus-visible{outline:2px solid var(--mint);outline-offset:2px}
+
+  .note{margin-top:22px;padding-top:16px;border-top:1px solid var(--line);font-size:.82rem;color:var(--ink-dim)}
+  .note b{color:var(--ink);font-weight:500}
+  .note code{background:var(--panel-2);border-radius:4px;padding:1px 6px;font-size:.9em;color:var(--mint)}
+</style>
+</head>
+<body>
+<div class="wrap" id="app">
+
+  <div class="stage">
+    <div class="wave" id="wave" aria-hidden="true"></div>
+    <h1>Phòng thử giọng — Nữ 18–20</h1>
+    <p class="sub">Thông số mặc định lấy từ chính đoạn video bạn gửi: đã đo cao độ, nhịp đọc và độ nhấn nhá của giọng nữ trong đó.</p>
+
+    <div class="measured">
+      <h2>ĐO ĐƯỢC TỪ VIDEO</h2>
+      <div class="grid">
+        <div class="cell"><div class="k">Cao độ (F0)</div><div class="v">≈ 340 Hz</div></div>
+        <div class="cell"><div class="k">Khoảng dao động</div><div class="v">308–400 Hz</div></div>
+        <div class="cell"><div class="k">Nhịp đọc</div><div class="v">4.9 âm tiết/s</div></div>
+        <div class="cell"><div class="k">Nhấn nhá</div><div class="v">4.7 nửa cung</div></div>
+      </div>
+      <p>Giọng nữ TTS tiêu chuẩn nằm quanh 208 Hz, nên để chạm 340 Hz cần đẩy cao độ lên khoảng <b style="color:#FFE3C2">1.6 lần</b> — đó là lý do núm cao độ mặc định ở 1.60 chứ không phải 1.00. Phần 4.7 nửa cung phần lớn là <i>thanh điệu tiếng Việt</i> (sắc, huyền, hỏi, ngã…) — bộ đọc tự lo, núm “Nhấn nhá” bên dưới chỉ thêm lên xuống theo câu.</p>
+    </div>
+  </div>
+
+  <div class="block">
+    <label for="script">Kịch bản</label>
+    <textarea id="script" spellcheck="false">Ê, bạn ơi! Bạn có biết là hôm nay mình vừa phát hiện ra một thứ siêu hay ho không? Nghe nè, mình kể cho mà nghe. Chuyện là thế này...</textarea>
+    <div id="reader" aria-live="polite"></div>
+    <div class="meta">
+      <span id="count">0 ký tự</span>
+      <span id="dur">~0 giây</span>
+    </div>
+  </div>
+
+  <div class="block">
+    <label for="voice">Giọng</label>
+    <div class="row">
+      <select id="voice"><option>Đang tìm giọng trong máy…</option></select>
+      <button class="mini" id="autoVoice" type="button">Tự chọn nữ trẻ</button>
+    </div>
+    <div class="warn" id="warn"></div>
+    <div class="tip" id="tip"></div>
+  </div>
+
+  <div class="block">
+    <label>Kiểu đọc</label>
+    <div class="chips" id="chips"></div>
+  </div>
+
+  <div class="knobs">
+    <div class="knob">
+      <div class="top">
+        <span class="name">Cao độ <button class="toneBtn" id="tone" type="button">♪ nghe nốt 340 Hz</button></span>
+        <span class="val" id="pitchVal">1.60</span>
+      </div>
+      <input type="range" id="pitch" min="0.3" max="2" step="0.01" value="1.6" aria-label="Cao độ giọng">
+      <div class="hint">Đây là núm quyết định tuổi của giọng. <b>1.50–1.70</b> là vùng khớp video. Dưới 1.2 nghe thành cô ba mươi, trên 1.85 thành chipmunk. Bấm nút ♪ để nghe nốt mẫu rồi chỉnh cho giọng đọc trùng cao độ với nó.</div>
+    </div>
+    <div class="knob">
+      <div class="top"><span class="name">Tốc độ</span><span class="val" id="rateVal">1.05</span></div>
+      <input type="range" id="rate" min="0.5" max="1.6" step="0.01" value="1.05" aria-label="Tốc độ đọc">
+      <div class="hint">Video chạy 4.9 âm tiết/giây — nhanh hơn giọng kể chuyện một chút, kiểu nói chuyện đời thường. <b>1.00–1.10</b> là vùng khớp.</div>
+    </div>
+    <div class="knob">
+      <div class="top"><span class="name">Nhấn nhá</span><span class="val" id="exprVal">50%</span></div>
+      <input type="range" id="expr" min="0" max="120" step="1" value="50" aria-label="Độ nhấn nhá">
+      <div class="hint">Tự nhấc giọng đầu câu, hạ dần về cuối, câu hỏi thì vống lên. Kéo về 0 là đều đều như đọc biên bản; trên 90 là hoạt náo viên.</div>
+    </div>
+    <div class="knob">
+      <div class="top"><span class="name">Ngắt nghỉ</span><span class="val" id="gapVal">1.00×</span></div>
+      <input type="range" id="gap" min="0" max="2" step="0.05" value="1" aria-label="Độ dài ngắt nghỉ">
+      <div class="hint">Khoảng lặng thật ở dấu phẩy và dấu chấm. Có nghỉ thì mới ra hơi người, không thì nghe như máy đọc liền tù tì.</div>
+    </div>
+    <div class="knob">
+      <div class="top"><span class="name">Âm lượng</span><span class="val" id="volVal">1.00</span></div>
+      <input type="range" id="vol" min="0" max="1" step="0.01" value="1" aria-label="Âm lượng">
+    </div>
+  </div>
+
+  <div class="bar">
+    <button class="act go" id="play">Đọc</button>
+    <button class="act ghost" id="pause" disabled>Tạm dừng</button>
+    <button class="act ghost" id="stop" disabled>Dừng</button>
+  </div>
+
+  <p class="note">
+    Tool này dùng bộ đọc có sẵn trong máy nên <b>không xuất được file mp3</b> — nó để nghe thử và chốt thông số thôi.
+    Chốt xong thì mang con số sang dịch vụ render: Vbee / FPT.AI chọn giọng nữ miền Bắc trẻ rồi đẩy pitch lên
+    <code>+6 đến +8 semitone</code>, Azure TTS thì dùng <code>vi-VN-HoaiMyNeural</code> với
+    <code>&lt;prosody pitch="+55%" rate="+5%"&gt;</code>. Đó là cách quy đổi tương đương của núm 1.60 ở đây.
+  </p>
+</div>
+
+<script>
+(function(){
+  const synth = window.speechSynthesis;
+  const app = document.getElementById('app');
+  const $ = id => document.getElementById(id);
+  const clamp = (v,a,b)=>Math.min(b,Math.max(a,v));
+
+  /* ---------- sóng âm trang trí ---------- */
+  const wave = $('wave');
+  for(let i=0;i<26;i++){
+    const b=document.createElement('i');
+    b.style.animationDelay=(i*0.07).toFixed(2)+'s';
+    b.style.animationDuration=(0.6+(i%5)*0.12).toFixed(2)+'s';
+    wave.appendChild(b);
+  }
+
+  if(!synth){
+    $('warn').className='warn on';
+    $('warn').textContent='Trình duyệt này không hỗ trợ đọc văn bản. Mở bằng Chrome, Edge hoặc Safari.';
+    ['play','pause','stop'].forEach(i=>$(i).disabled=true);
+    return;
+  }
+
+  /* ================================================================
+     1. CHỌN GIỌNG — chấm điểm để ưu tiên giọng nữ trẻ tiếng Việt
+     ================================================================ */
+  const FEMALE = ['hoaimy','hoai my','female','nữ','nu ','linh','mai','ngoc','ngọc','lan','thu','trang','hương','huong','my','ly','lý','ha','hà','quynh','quỳnh','anh thư','minh nguyet','zira','hazel','samantha','karen','tessa','google tiếng việt','google vietnamese'];
+  const MALE   = ['namminh','nam minh','male','nam ','minh nam','bao','bảo','hung','hùng','duc','đức','long','tuan','tuấn','khanh','david','mark','george','daniel','alex','fred'];
+
+  function isVi(v){ return (v.lang||'').toLowerCase().replace('_','-').startsWith('vi'); }
+
+  function scoreVoice(v){
+    const n=(v.name||'').toLowerCase(), l=(v.lang||'').toLowerCase();
+    let s=0;
+    if(isVi(v)) s+=100;                                  // đúng tiếng Việt là quan trọng nhất
+    if(MALE.some(k=>n.includes(k))) s-=60;               // loại giọng nam
+    if(FEMALE.some(k=>n.includes(k))) s+=40;             // ưu tiên giọng nữ
+    if(n.includes('neural')||n.includes('natural')) s+=14; // giọng neural nghe người hơn
+    if(n.includes('google')) s+=10;
+    if(n.includes('online')||n.includes('network')) s+=6;
+    if(n.includes('espeak')||n.includes('compact')) s-=25; // giọng robot
+    if(v.localService===false) s+=4;
+    if(l==='vi-vn') s+=5;
+    return s;
+  }
+
+  let voices=[];
+  const sel=$('voice'), warn=$('warn'), tip=$('tip');
+
+  function pickBest(){
+    if(!voices.length) return null;
+    return voices.slice().sort((a,b)=>scoreVoice(b)-scoreVoice(a))[0];
+  }
+
+  function describe(v){
+    const n=(v.name||'').toLowerCase();
+    if(MALE.some(k=>n.includes(k))) return 'nam';
+    if(FEMALE.some(k=>n.includes(k))) return 'nữ';
+    return '?';
+  }
+
+  function loadVoices(){
+    const list = synth.getVoices();
+    if(!list.length) return false;
+    if(list.length===voices.length && voices.length) return true;
+    voices=list;
+
+    const keep = sel.value;
+    const vi=voices.filter(isVi), rest=voices.filter(v=>!isVi(v));
+    sel.innerHTML='';
+    const build=(arr,labelText)=>{
+      if(!arr.length) return;
+      const g=document.createElement('optgroup'); g.label=labelText;
+      arr.slice().sort((a,b)=>scoreVoice(b)-scoreVoice(a)).forEach(v=>{
+        const o=document.createElement('option');
+        o.value=v.name;
+        const tag=describe(v);
+        o.textContent=v.name+' · '+v.lang+(tag!=='?'?' · '+tag:'');
+        g.appendChild(o);
+      });
+      sel.appendChild(g);
+    };
+    build(vi,'Tiếng Việt');
+    build(rest,'Ngôn ngữ khác');
+
+    if(keep && voices.some(v=>v.name===keep)) sel.value=keep;
+    else { const b=pickBest(); if(b) sel.value=b.name; }
+
+    if(!vi.length){
+      warn.className='warn on';
+      warn.innerHTML='Máy chưa có giọng tiếng Việt nào — chọn giọng khác vẫn đọc được nhưng sai phát âm hết.<br>'+
+        '<b>Android:</b> Cài đặt → Ngôn ngữ → Đầu ra chuyển văn bản thành lời nói → tải gói tiếng Việt.<br>'+
+        '<b>Windows:</b> Cài đặt → Thời gian &amp; ngôn ngữ → Giọng nói → Thêm giọng → Tiếng Việt (HoaiMy).<br>'+
+        '<b>iOS/macOS:</b> Cài đặt → Trợ năng → Nội dung được nói → Giọng nói → Tiếng Việt.';
+    } else warn.className='warn';
+
+    onVoiceChange();
+    return true;
+  }
+
+  function onVoiceChange(){
+    const v=voices.find(x=>x.name===sel.value);
+    if(!v){ tip.className='tip'; return; }
+    const t=describe(v);
+    if(t==='nam'){
+      tip.className='tip on';
+      tip.textContent='Giọng này là giọng nam. Đẩy cao độ lên cũng không ra con gái 18 tuổi đâu — nghe sẽ giống nam bị bóp giọng. Bấm “Tự chọn nữ trẻ” hoặc đổi sang giọng có gắn nhãn nữ.';
+    } else if(!isVi(v)){
+      tip.className='tip on';
+      tip.textContent='Giọng này không phải tiếng Việt nên sẽ đọc sai dấu. Vẫn thử được nhưng đừng lấy làm chuẩn.';
+    } else { tip.className='tip'; }
+    loadCalib(v.name);
+  }
+  sel.addEventListener('change', onVoiceChange);
+
+  $('autoVoice').onclick=()=>{
+    const b=pickBest();
+    if(b){ sel.value=b.name; onVoiceChange(); }
+  };
+
+  // chú ý: loadVoices() được gọi ở cuối file, sau khi mọi núm đã khai báo xong
+
+  /* ================================================================
+     2. PRESET
+     ================================================================ */
+  const presets=[
+    {name:'Nữ 18–20 (khớp video)', pitch:1.60, rate:1.05, expr:50, gap:1.00},
+    {name:'Nữ trẻ · dịu',          pitch:1.42, rate:0.95, expr:35, gap:1.25},
+    {name:'Nữ trẻ · tíu tít',      pitch:1.72, rate:1.18, expr:85, gap:0.70},
+    {name:'Nữ trẻ · dẫn video',    pitch:1.50, rate:1.10, expr:60, gap:0.85},
+    {name:'Thủ thỉ đêm khuya',     pitch:1.30, rate:0.85, expr:25, gap:1.60}
+  ];
+  const chips=$('chips');
+  presets.forEach((p,i)=>{
+    const b=document.createElement('button');
+    b.className='chip'; b.type='button'; b.textContent=p.name;
+    b.setAttribute('aria-pressed', i===0?'true':'false');
+    b.onclick=()=>{
+      pitch.value=p.pitch; rate.value=p.rate; expr.value=p.expr; gap.value=p.gap;
+      syncKnobs(); saveCalib();
+      [...chips.children].forEach(c=>c.setAttribute('aria-pressed','false'));
+      b.setAttribute('aria-pressed','true');
+    };
+    chips.appendChild(b);
+  });
+
+  /* ================================================================
+     3. NÚM CHỈNH + nhớ theo từng giọng
+     ================================================================ */
+  const pitch=$('pitch'), rate=$('rate'), expr=$('expr'), gap=$('gap'), vol=$('vol');
+
+  function syncKnobs(){
+    $('pitchVal').textContent=(+pitch.value).toFixed(2);
+    $('rateVal').textContent=(+rate.value).toFixed(2);
+    $('exprVal').textContent=Math.round(+expr.value)+'%';
+    $('gapVal').textContent=(+gap.value).toFixed(2)+'×';
+    $('volVal').textContent=(+vol.value).toFixed(2);
+    estimate();
+  }
+  [pitch,rate,expr,gap,vol].forEach(k=>k.addEventListener('input',()=>{
+    syncKnobs();
+    if(k!==vol) [...chips.children].forEach(c=>c.setAttribute('aria-pressed','false'));
+  }));
+  [pitch,rate,expr,gap,vol].forEach(k=>k.addEventListener('change', saveCalib));
+
+  function saveCalib(){
+    try{
+      localStorage.setItem('voiceroom:'+sel.value, JSON.stringify({
+        p:+pitch.value, r:+rate.value, e:+expr.value, g:+gap.value
+      }));
+    }catch(_){}
+  }
+  function loadCalib(name){
+    try{
+      const raw=localStorage.getItem('voiceroom:'+name);
+      if(!raw) return;
+      const c=JSON.parse(raw);
+      if(c.p) pitch.value=c.p;
+      if(c.r) rate.value=c.r;
+      if(typeof c.e==='number') expr.value=c.e;
+      if(typeof c.g==='number') gap.value=c.g;
+      syncKnobs();
+      [...chips.children].forEach(c2=>c2.setAttribute('aria-pressed','false'));
+    }catch(_){}
+  }
+
+  /* ================================================================
+     4. NỐT MẪU 340 Hz — để căn cao độ bằng tai
+     ================================================================ */
+  let actx=null;
+  $('tone').onclick=()=>{
+    try{
+      actx=actx||new (window.AudioContext||window.webkitAudioContext)();
+      if(actx.state==='suspended') actx.resume();
+      const t0=actx.currentTime;
+      const osc=actx.createOscillator();      // răng cưa ~ giống dây thanh
+      const lp=actx.createBiquadFilter();
+      const g=actx.createGain();
+      const vib=actx.createOscillator();      // rung nhẹ cho ra chất người
+      const vibG=actx.createGain();
+      osc.type='sawtooth'; osc.frequency.value=340;
+      vib.frequency.value=5.2; vibG.gain.value=4.5;
+      vib.connect(vibG); vibG.connect(osc.frequency);
+      lp.type='lowpass'; lp.frequency.value=2400; lp.Q.value=0.9;
+      g.gain.setValueAtTime(0.0001,t0);
+      g.gain.exponentialRampToValueAtTime(0.16*(+vol.value||1)+0.0001,t0+0.06);
+      g.gain.setValueAtTime(0.16*(+vol.value||1)+0.0001,t0+1.0);
+      g.gain.exponentialRampToValueAtTime(0.0001,t0+1.35);
+      osc.connect(lp); lp.connect(g); g.connect(actx.destination);
+      osc.start(t0); vib.start(t0); osc.stop(t0+1.4); vib.stop(t0+1.4);
+    }catch(_){}
+  };
+
+  /* ================================================================
+     5. TÁCH CÂU + DỰNG ĐƯỜNG NÉT NGỮ ĐIỆU
+        (không dùng lookbehind để Safari cũ vẫn chạy)
+     ================================================================ */
+  const SENT_END='.!?…', CLAUSE_END=',;:';
+  const MAXLEN=170;
+
+  function splitPhrases(text){
+    const t=text.replace(/\s+/g,' ').trim();
+    const out=[]; let buf='';
+    for(let i=0;i<t.length;i++){
+      const ch=t[i]; buf+=ch;
+      if(SENT_END.indexOf(ch)>=0){
+        let mark=ch;
+        while(i+1<t.length && SENT_END.indexOf(t[i+1])>=0){ buf+=t[++i]; }
+        if(buf.indexOf('...')>=0 || buf.indexOf('…')>=0) mark='…';
+        out.push({text:buf.trim(), end:'sent', mark:mark}); buf='';
+      } else if(CLAUSE_END.indexOf(ch)>=0){
+        out.push({text:buf.trim(), end:'clause', mark:ch}); buf='';
+      }
+    }
+    if(buf.trim()) out.push({text:buf.trim(), end:'none', mark:''});
+
+    // cắt nhỏ khúc quá dài (Chrome hay đứt giữa chừng ở câu dài)
+    const fin=[];
+    out.forEach(p=>{
+      if(p.text.length<=MAXLEN){ fin.push(p); return; }
+      const w=p.text.split(' '); let b='';
+      w.forEach(word=>{
+        if((b+' '+word).trim().length>MAXLEN){ fin.push({text:b.trim(),end:'none',mark:''}); b=word; }
+        else b=(b+' '+word).trim();
+      });
+      if(b) fin.push({text:b.trim(), end:p.end, mark:p.mark});
+    });
+    return fin.filter(p=>/[0-9A-Za-zÀ-ỹ]/.test(p.text));
+  }
+
+  // nhiễu tất định: cùng kịch bản cho ra cùng ngữ điệu, nghe lại không bị lệch
+  function noise(k){ const s=Math.sin(k*12.9898+78.233)*43758.5453; return s-Math.floor(s); }
+
+  function buildPlan(){
+    const parts=splitPhrases(script.value);
+    const sentences=[]; let cur=[];
+    parts.forEach(p=>{ cur.push(p); if(p.end==='sent'){ sentences.push(cur); cur=[]; } });
+    if(cur.length) sentences.push(cur);
+
+    const basePitch=+pitch.value, baseRate=+rate.value;
+    const E=(+expr.value)/100, G=+gap.value, V=+vol.value;
+    const plan=[]; let k=0;
+
+    sentences.forEach(sent=>{
+      const n=sent.length;
+      sent.forEach((p,i)=>{
+        const prog = n>1 ? i/(n-1) : 0;
+        let st=0;
+        if(i===0) st+=1.1;                 // nhấc giọng lúc vào câu
+        st+=-1.5*prog;                     // hạ dần theo câu (declination)
+        if(i===n-1){                       // vế cuối câu
+          if(p.mark==='?')      st+=2.4;   // câu hỏi vống lên
+          else if(p.mark==='!') st+=0.9;   // cảm thán giữ cao
+          else if(p.mark==='…') st+=-0.4;  // bỏ lửng
+          else                  st+=-1.2;  // câu kể rơi xuống
+        }
+        st+=(noise(k)*2-1)*0.75;           // dao động tự nhiên
+        st*=E*1.2;
+
+        let r=baseRate*(1+(noise(k+91)*2-1)*0.05*E);
+        if(i===n-1 && p.mark!=='?') r*=1-0.06*E;      // chậm lại khi kết câu
+        if(p.text.length<18) r*=1+0.04*E;             // vế ngắn thì lướt nhanh hơn
+
+        let pause = p.end==='sent' ? 330 : p.end==='clause' ? 150 : 55;
+        if(p.mark==='…') pause=520;
+        if(p.mark==='?'||p.mark==='!') pause=380;
+
+        plan.push({
+          text : p.text,
+          pitch: clamp(basePitch*Math.pow(2, st/12), 0.1, 2),
+          rate : clamp(r, 0.1, 2),
+          vol  : clamp(V*(1-0.05*E*noise(k+7)), 0, 1),
+          pause: Math.round(pause*G)
+        });
+        k++;
+      });
+    });
+    return plan;
+  }
+
+  /* ================================================================
+     6. ĐẾM & ƯỚC LƯỢNG
+     ================================================================ */
+  const script=$('script');
+  function estimate(){
+    const n=script.value.trim().length;
+    $('count').textContent=n+' ký tự';
+    let secs=n/(14.5*(+rate.value||1));
+    try{ secs += buildPlan().reduce((s,c)=>s+c.pause,0)/1000; }catch(_){}
+    $('dur').textContent = secs<60
+      ? '~'+Math.round(secs)+' giây'
+      : '~'+Math.floor(secs/60)+' phút '+Math.round(secs%60)+' giây';
+  }
+  script.addEventListener('input', estimate);
+
+  /* ================================================================
+     7. PHÁT
+     ================================================================ */
+  const reader=$('reader'), playBtn=$('play'), pauseBtn=$('pause'), stopBtn=$('stop');
+  let queue=[], idx=0, active=false, timer=null;
+
+  function paint(){
+    reader.innerHTML='';
+    queue.forEach((c,i)=>{
+      const s=document.createElement('span');
+      s.textContent=c.text+' ';
+      if(i===idx) s.className='now';
+      reader.appendChild(s);
+    });
+    const cur=reader.querySelector('.now');
+    if(cur) cur.scrollIntoView({block:'nearest', behavior:'smooth'});
+  }
+
+  function reset(){
+    active=false;
+    clearTimeout(timer); timer=null;
+    app.classList.remove('playing','reading');
+    playBtn.textContent='Đọc';
+    pauseBtn.disabled=true; stopBtn.disabled=true; pauseBtn.textContent='Tạm dừng';
+  }
+
+  function speakNext(){
+    if(!active) return;
+    if(idx>=queue.length){ reset(); return; }
+    paint();
+    const c=queue[idx];
+    const u=new SpeechSynthesisUtterance(c.text);
+    const chosen=voices.find(v=>v.name===sel.value);
+    if(chosen){ u.voice=chosen; u.lang=chosen.lang; } else { u.lang='vi-VN'; }
+    u.pitch=c.pitch; u.rate=c.rate; u.volume=c.vol;
+    const advance=()=>{
+      if(!active) return;
+      idx++;
+      timer=setTimeout(speakNext, c.pause);   // khoảng lặng thật giữa các vế
+    };
+    u.onend=advance;
+    u.onerror=advance;
+    synth.speak(u);
+  }
+
+  playBtn.onclick=()=>{
+    const text=script.value.trim();
+    if(!text){ script.focus(); return; }
+    synth.cancel(); clearTimeout(timer);
+    queue=buildPlan();
+    if(!queue.length) return;
+    idx=0; active=true;
+    app.classList.add('playing','reading');
+    playBtn.textContent='Đang đọc';
+    pauseBtn.disabled=false; stopBtn.disabled=false;
+    setTimeout(speakNext, 60);
+  };
+
+  pauseBtn.onclick=()=>{
+    if(synth.paused){
+      synth.resume(); pauseBtn.textContent='Tạm dừng'; app.classList.add('playing');
+    } else {
+      synth.pause(); pauseBtn.textContent='Đọc tiếp'; app.classList.remove('playing');
+    }
+  };
+
+  stopBtn.onclick=()=>{ active=false; clearTimeout(timer); synth.cancel(); reset(); };
+
+  window.addEventListener('beforeunload', ()=>synth.cancel());
+
+  /* ================================================================
+     8. KHỞI ĐỘNG — chạy sau cùng để mọi biến ở trên đã sẵn sàng
+     ================================================================ */
+  syncKnobs();
+  loadVoices();
+  synth.onvoiceschanged=loadVoices;
+  let tries=0;
+  const poll=setInterval(()=>{
+    if(loadVoices()){ clearInterval(poll); return; }
+    if(++tries>24){                       // hết 6 giây mà máy không trả về giọng nào
+      clearInterval(poll);
+      if(!voices.length){
+        sel.innerHTML='<option>Không tìm thấy giọng nào</option>';
+        warn.className='warn on';
+        warn.innerHTML='Máy chưa cài bộ đọc nào nên không thử được.<br>'+
+          '<b>Android:</b> Cài đặt → Ngôn ngữ → Đầu ra chuyển văn bản thành lời nói → tải gói tiếng Việt.<br>'+
+          '<b>Windows:</b> Cài đặt → Thời gian &amp; ngôn ngữ → Giọng nói → Thêm giọng → Tiếng Việt (HoaiMy).<br>'+
+          '<b>iOS/macOS:</b> Cài đặt → Trợ năng → Nội dung được nói → Giọng nói → Tiếng Việt.';
+        playBtn.disabled=true;
+      }
+    }
+  },250);
+})();
+</script>
+</body>
+</html>
